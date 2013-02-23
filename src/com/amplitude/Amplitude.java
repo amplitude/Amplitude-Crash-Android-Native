@@ -30,7 +30,7 @@ public class Amplitude {
 	private static final String TAG = "Amplitude";
 	public static final String PACKAGE_NAME = Amplitude.class.getPackage().getName();
 	
-	public static final String UPLOAD_HOST = "http://crash.amplitude.com";
+	public static final String UPLOAD_HOST = "https://crash.amplitude.com";
 	public static final String UPLOAD_PATH = "/crash";
 	public static final String UPLOAD_URL = UPLOAD_HOST + UPLOAD_PATH;
 	public static final String SPACER = "--";
