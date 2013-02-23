@@ -1,0 +1,38 @@
+<project
+    name="Amplitude Android Native Crash Reporting"
+    basedir="."
+    default="dist" >
+
+    <description>
+    </description>
+    <!-- set global properties for this build -->
+
+    <property
+        name="bin"
+        location="bin" />
+
+    <property environment="env" />
+
+    <path id="project.class.path" >
+        <pathelement path="${env.ANDROID_SDK}/platforms/android-14/android.jar" />
+    </path>
+
+    <target name="build" >
+        <javac
+            classpathref="project.class.path"
+            destdir="${bin}"
+            includeantruntime="false"
+            srcdir="src" >
+        </javac>
+    </target>
+
+    <target
+        name="jar"
+        depends="build" >
+        <jar
+            basedir="${bin}"
+            destfile="amplitude-crash.jar"
+            includes="**/*.class" />
+    </target>
+
+</project>
