@@ -157,13 +157,15 @@ public class Amplitude {
 			dos.writeBytes("Content-Disposition: form-data; name=\"appName\""
 					+ NEW_LINE);
 			dos.writeBytes(NEW_LINE);
-			dos.writeBytes(Amplitude.appName + NEW_LINE);
+			dos.write(Amplitude.appName.getBytes("UTF-8"));
+			dos.writeBytes(NEW_LINE);
 
 			dos.writeBytes(SPACER + BOUNDARY + NEW_LINE);
 			dos.writeBytes("Content-Disposition: form-data; name=\"version\""
 					+ NEW_LINE);
 			dos.writeBytes(NEW_LINE);
-			dos.writeBytes(Amplitude.version + NEW_LINE);
+			dos.write(Amplitude.version.getBytes("UTF-8"));
+			dos.writeBytes(NEW_LINE);
 
 			dos.writeBytes(SPACER + BOUNDARY + NEW_LINE);
 			dos.writeBytes("Content-Disposition: form-data; name=\"versionCode\""
