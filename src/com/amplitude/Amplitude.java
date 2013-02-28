@@ -12,8 +12,11 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.Locale;
 
 import org.apache.http.HttpStatus;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -21,15 +24,18 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.telephony.TelephonyManager;
 import android.util.Log;
 
 public class Amplitude {
 
 	private static final String TAG = "Amplitude";
-	public static final String PACKAGE_NAME = Amplitude.class.getPackage().getName();
-	
+	public static final String PACKAGE_NAME = Amplitude.class.getPackage()
+			.getName();
+
 	public static final String UPLOAD_HOST = "https://crash.amplitude.com";
 	public static final String UPLOAD_PATH = "/crash";
 	public static final String UPLOAD_URL = UPLOAD_HOST + UPLOAD_PATH;
@@ -40,38 +46,54 @@ public class Amplitude {
 
 	private static UploadThread instance = new UploadThread();
 	static {
+		// TODO: Make this thread ephemeral, or use SingleThreadExecutor
 		instance.start();
 	}
 
-	private static String apiKey;
-	private static String appName;
-	private static String version;
-	private static int versionCode;
+	private static final String PLATFORM = "android";
 
 	private Amplitude() {}
-	
+
 	public static void initCrashReporting(final Context context,
 			final String crashDumpDir, final String apiKey, final String version) {
+		Amplitude.initCrashReporting(context, crashDumpDir, apiKey, version,
+				null);
+	}
+
+	public static void initCrashReporting(final Context context,
+			final String crashDumpDir, final String apiKey,
+			final String version, final JSONObject extras) {
 		try {
 			if (apiKey == null) {
-				Log.e(TAG, "No app id provided");
+				Log.e(TAG, "No API Key provided");
 				return;
 			}
-			Amplitude.appName = getAppName(context);
-			Amplitude.apiKey = apiKey;
-			Amplitude.version = version != null ? version : getAppVersionName(context);
-			Amplitude.versionCode = getAppVersionCode(context);
+			final Data data = new Data(
+					apiKey,
+					Data.getAppName(context),
+					version != null ? version : Data.getAppVersionName(context),
+					Data.getAppVersionCode(context), PLATFORM,
+					Build.VERSION.SDK_INT, Build.VERSION.RELEASE, Build.BRAND,
+					Build.MANUFACTURER, Build.MODEL, Locale.getDefault()
+							.getDisplayCountry(), Locale.getDefault()
+							.getDisplayLanguage(), Data.getCarrier(context),
+					extras);
+
 			UploadThread.post(new Runnable() {
 				@Override
 				public void run() {
-	
+
 					try {
-					
+
 						// Get last successful upload time
-			            SharedPreferences sharedPreferences = context.getSharedPreferences(
-			                PACKAGE_NAME + "." + context.getPackageName(), Context.MODE_PRIVATE);
-			            final long lastSuccessfulUploadTime = sharedPreferences.getLong(PACKAGE_NAME + ".lastSuccessfulUploadTime", 0);
-			            
+						SharedPreferences sharedPreferences = context
+								.getSharedPreferences(PACKAGE_NAME + "."
+										+ context.getPackageName(),
+										Context.MODE_PRIVATE);
+						final long lastSuccessfulUploadTime = sharedPreferences
+								.getLong(PACKAGE_NAME
+										+ ".lastSuccessfulUploadTime", 0);
+
 						File f = new File(crashDumpDir);
 						if (!f.isDirectory()) {
 							if (!f.mkdirs()) {
@@ -83,7 +105,8 @@ public class Amplitude {
 						File[] files = f.listFiles(new FileFilter() {
 							@Override
 							public boolean accept(File file) {
-								return file.isFile() && file.lastModified() > lastSuccessfulUploadTime;
+								return file.isFile()
+										&& file.lastModified() > lastSuccessfulUploadTime;
 							}
 						});
 						if (files != null) {
@@ -103,8 +126,10 @@ public class Amplitude {
 							});
 							for (File file : files) {
 								try {
-									uploadFile(context, file, UPLOAD_URL);
+									uploadFile(context, file, UPLOAD_URL, data);
 								} catch (IOException e) {
+									Log.e(TAG, e.getMessage());
+								} catch (JSONException e) {
 									Log.e(TAG, e.getMessage());
 								}
 							}
@@ -125,7 +150,8 @@ public class Amplitude {
 		}
 	}
 
-	private static void uploadFile(final Context context, File f, String endpoint) throws IOException {
+	private static void uploadFile(final Context context, File f,
+			String endpoint, Data data) throws IOException, JSONException {
 		Log.d(TAG, "Uploading " + f.getName());
 		URL url = new URL(endpoint);
 		int bytesRead;
@@ -144,6 +170,10 @@ public class Amplitude {
 		FileInputStream fis = null;
 		BufferedReader br = null;
 		long crashtime = f.lastModified();
+
+		JSONObject extras = data.asJSONObject();
+		extras.put("crashtime", crashtime);
+
 		try {
 			dos = new DataOutputStream(conn.getOutputStream());
 			fis = new FileInputStream(f);
@@ -151,33 +181,40 @@ public class Amplitude {
 			dos.writeBytes("Content-Disposition: form-data; name=\"apiKey\""
 					+ NEW_LINE);
 			dos.writeBytes(NEW_LINE);
-			dos.writeBytes(Amplitude.apiKey + NEW_LINE);
+			dos.writeBytes(data.apiKey + NEW_LINE);
 
 			dos.writeBytes(SPACER + BOUNDARY + NEW_LINE);
 			dos.writeBytes("Content-Disposition: form-data; name=\"appName\""
 					+ NEW_LINE);
 			dos.writeBytes(NEW_LINE);
-			dos.write(Amplitude.appName.getBytes("UTF-8"));
+			dos.write(data.appName.getBytes("UTF-8"));
 			dos.writeBytes(NEW_LINE);
 
 			dos.writeBytes(SPACER + BOUNDARY + NEW_LINE);
 			dos.writeBytes("Content-Disposition: form-data; name=\"version\""
 					+ NEW_LINE);
 			dos.writeBytes(NEW_LINE);
-			dos.write(Amplitude.version.getBytes("UTF-8"));
+			dos.write(data.version.getBytes("UTF-8"));
 			dos.writeBytes(NEW_LINE);
 
 			dos.writeBytes(SPACER + BOUNDARY + NEW_LINE);
 			dos.writeBytes("Content-Disposition: form-data; name=\"versionCode\""
 					+ NEW_LINE);
 			dos.writeBytes(NEW_LINE);
-			dos.writeBytes(Amplitude.versionCode + NEW_LINE);
+			dos.writeBytes(data.versionCode + NEW_LINE);
 
 			dos.writeBytes(SPACER + BOUNDARY + NEW_LINE);
 			dos.writeBytes("Content-Disposition: form-data; name=\"crashtime\""
 					+ NEW_LINE);
 			dos.writeBytes(NEW_LINE);
 			dos.writeBytes(crashtime + NEW_LINE);
+
+			dos.writeBytes(SPACER + BOUNDARY + NEW_LINE);
+			dos.writeBytes("Content-Disposition: form-data; name=\"extras\""
+					+ NEW_LINE);
+			dos.writeBytes(NEW_LINE);
+			dos.write(extras.toString().getBytes("UTF-8"));
+			dos.writeBytes(NEW_LINE);
 
 			dos.writeBytes(SPACER + BOUNDARY + NEW_LINE);
 			dos.writeBytes(contentDisposition + NEW_LINE);
@@ -193,7 +230,8 @@ public class Amplitude {
 
 			int responseCode = conn.getResponseCode();
 			if (responseCode != HttpStatus.SC_OK) {
-				Log.w(TAG, responseCode + " Error: " + conn.getResponseMessage());
+				Log.w(TAG,
+						responseCode + " Error: " + conn.getResponseMessage());
 				return;
 			}
 
@@ -205,13 +243,15 @@ public class Amplitude {
 				sb.append(line + "\n");
 			}
 			Log.d(TAG, "Sucessfully uploaded " + f.getName());
-			
+
 			// Save last successful upload time
-            SharedPreferences sharedPreferences = context.getSharedPreferences(
-                PACKAGE_NAME + "." + context.getPackageName(), Context.MODE_PRIVATE);
-            SharedPreferences.Editor editor = sharedPreferences.edit();
-            editor.putLong(PACKAGE_NAME + ".lastSuccessfulUploadTime", crashtime);
-            editor.commit();
+			SharedPreferences sharedPreferences = context.getSharedPreferences(
+					PACKAGE_NAME + "." + context.getPackageName(),
+					Context.MODE_PRIVATE);
+			SharedPreferences.Editor editor = sharedPreferences.edit();
+			editor.putLong(PACKAGE_NAME + ".lastSuccessfulUploadTime",
+					crashtime);
+			editor.commit();
 		} finally {
 			safeClose(dos);
 			safeClose(fis);
@@ -230,50 +270,114 @@ public class Amplitude {
 		}
 	}
 
-	private static String getAppName(Context context) {
-		PackageManager packageManager = context.getApplicationContext()
-				.getPackageManager();
-		ApplicationInfo info;
-		try {
-			info = packageManager.getApplicationInfo(context.getPackageName(),
-					0);
-		} catch (NameNotFoundException e) {
-			info = null;
-		}
-		String appName = info != null ? (String) packageManager.getApplicationLabel(info) : null;
-		return appName != null ? appName : "";
-	}
+	private static class Data {
+		final private String apiKey;
+		final private String appName;
+		final private String version;
+		final private int versionCode;
+		final private String platform;
+		final private int platform_sdk;
+		final private String platform_release;
+		final private String device_brand;
+		final private String device_manufacturer;
+		final private String device_model;
+		final private String country;
+		final private String language;
+		final private String carrier;
+		final private JSONObject extras;
 
-	private static String getAppVersionName(Context context) {
-		PackageInfo info;
-		try {
-			info = context
-					.getApplicationContext()
-					.getPackageManager()
-					.getPackageInfo(
-							context.getApplicationContext().getPackageName(), 0);
-		} catch (NameNotFoundException n) {
-			info = null;
+		private Data(String apiKey, String appName, String version,
+				int versionCode, String platform, int platform_sdk,
+				String platform_release, String device_brand,
+				String device_manufacturer, String device_model,
+				String country, String language, String carrier,
+				JSONObject extras) {
+			this.apiKey = apiKey;
+			this.appName = appName;
+			this.version = version;
+			this.versionCode = versionCode;
+			this.platform = platform;
+			this.platform_sdk = platform_sdk;
+			this.platform_release = platform_release;
+			this.device_brand = device_brand;
+			this.device_manufacturer = device_manufacturer;
+			this.device_model = device_model;
+			this.country = country;
+			this.language = language;
+			this.carrier = carrier;
+			this.extras = extras;
 		}
-		String versionName = info != null ? info.versionName : null;
-		return versionName != null ? versionName : "";
-	}
 
-	private static int getAppVersionCode(Context context) {
-		PackageInfo info;
-		try {
-			info = context
-					.getApplicationContext()
-					.getPackageManager()
-					.getPackageInfo(
-							context.getApplicationContext().getPackageName(), 0);
-		} catch (NameNotFoundException n) {
-			info = null;
+		private JSONObject asJSONObject() throws JSONException {
+			JSONObject json = new JSONObject();
+			json.put("app_name", appName);
+			json.put("version", version);
+			json.put("version_code", versionCode);
+			json.put("platform", platform);
+			json.put("platform_sdk", platform_sdk);
+			json.put("platform_release", platform_release);
+			json.put("device_brand", device_brand);
+			json.put("device_manufacturer", device_manufacturer);
+			json.put("device_model", device_model);
+			json.put("country", country);
+			json.put("language", language);
+			json.put("carrier", carrier);
+			json.put("extras", extras);
+			return json;
 		}
-		return info != null ? info.versionCode : -1;
-	}
-	
 
+		private static String getAppName(Context context) {
+			PackageManager packageManager = context.getApplicationContext()
+					.getPackageManager();
+			ApplicationInfo info;
+			try {
+				info = packageManager.getApplicationInfo(
+						context.getPackageName(), 0);
+			} catch (NameNotFoundException e) {
+				info = null;
+			}
+			String appName = info != null ? (String) packageManager
+					.getApplicationLabel(info) : null;
+			return appName != null ? appName : "";
+		}
+
+		private static String getAppVersionName(Context context) {
+			PackageInfo info;
+			try {
+				info = context
+						.getApplicationContext()
+						.getPackageManager()
+						.getPackageInfo(
+								context.getApplicationContext()
+										.getPackageName(), 0);
+			} catch (NameNotFoundException n) {
+				info = null;
+			}
+			String versionName = info != null ? info.versionName : null;
+			return versionName != null ? versionName : "";
+		}
+
+		private static int getAppVersionCode(Context context) {
+			PackageInfo info;
+			try {
+				info = context
+						.getApplicationContext()
+						.getPackageManager()
+						.getPackageInfo(
+								context.getApplicationContext()
+										.getPackageName(), 0);
+			} catch (NameNotFoundException n) {
+				info = null;
+			}
+			return info != null ? info.versionCode : -1;
+		}
+
+		private static String getCarrier(Context context) {
+			TelephonyManager manager = (TelephonyManager) context
+					.getSystemService(Context.TELEPHONY_SERVICE);
+			return manager.getNetworkOperatorName();
+		}
+	}
 
 	private static class UploadThread extends Thread {
 
