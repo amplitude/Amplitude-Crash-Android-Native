@@ -19,7 +19,6 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import android.content.Context;
-import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
@@ -85,15 +84,6 @@ public class Amplitude {
 
 					try {
 
-						// Get last successful upload time
-						SharedPreferences sharedPreferences = context
-								.getSharedPreferences(PACKAGE_NAME + "."
-										+ context.getPackageName(),
-										Context.MODE_PRIVATE);
-						final long lastSuccessfulUploadTime = sharedPreferences
-								.getLong(PACKAGE_NAME
-										+ ".lastSuccessfulUploadTime", 0);
-
 						File f = new File(crashDumpDir);
 						if (!f.isDirectory()) {
 							if (!f.mkdirs()) {
@@ -105,8 +95,7 @@ public class Amplitude {
 						File[] files = f.listFiles(new FileFilter() {
 							@Override
 							public boolean accept(File file) {
-								return file.isFile()
-										&& file.lastModified() > lastSuccessfulUploadTime;
+								return file.isFile();
 							}
 						});
 						if (files != null) {
@@ -217,6 +206,12 @@ public class Amplitude {
 			dos.writeBytes(NEW_LINE);
 
 			dos.writeBytes(SPACER + BOUNDARY + NEW_LINE);
+			dos.writeBytes("Content-Disposition: form-data; name=\"uploadtime\""
+					+ NEW_LINE);
+			dos.writeBytes(NEW_LINE);
+			dos.writeBytes(System.currentTimeMillis() + NEW_LINE);
+
+			dos.writeBytes(SPACER + BOUNDARY + NEW_LINE);
 			dos.writeBytes(contentDisposition + NEW_LINE);
 			dos.writeBytes(contentType + NEW_LINE);
 			dos.writeBytes(NEW_LINE);
@@ -243,15 +238,6 @@ public class Amplitude {
 				sb.append(line + "\n");
 			}
 			Log.d(TAG, "Sucessfully uploaded " + f.getName());
-
-			// Save last successful upload time
-			SharedPreferences sharedPreferences = context.getSharedPreferences(
-					PACKAGE_NAME + "." + context.getPackageName(),
-					Context.MODE_PRIVATE);
-			SharedPreferences.Editor editor = sharedPreferences.edit();
-			editor.putLong(PACKAGE_NAME + ".lastSuccessfulUploadTime",
-					crashtime);
-			editor.commit();
 		} finally {
 			safeClose(dos);
 			safeClose(fis);
