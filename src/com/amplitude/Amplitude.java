@@ -390,7 +390,8 @@ public class Amplitude {
 			while (instance.handler == null) {
 				synchronized (instance) {
 					try {
-						instance.wait();
+						if (instance.handler == null)
+							instance.wait();
 					} catch (InterruptedException e) {
 					}
 				}
